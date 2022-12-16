@@ -14,6 +14,7 @@ const Me = ExtensionUtils.getCurrentExtension();
 const Gettext = imports.gettext.domain('PingIndic');
 const _ = Gettext.gettext;
 
+const DIGITS = 'digits';
 const UPDTEDLY="update-interval";
 const ADRESS='adress';
 const LIMITFORGOOD = "limitforgood";
@@ -23,13 +24,14 @@ let mpingindic;
 
 const Extension = GObject.registerClass(
 class Extension extends PanelMenu.Button{
-     _init () {
+    _init () {
         super._init(0);
 
         this.accessible_role = Atk.Role.TOGGLE_BUTTON;
 
         this._settings = ExtensionUtils.getSettings('org.gnome.shell.extensions.pingindic');
-        this._settings.connect(`changed`, this.loadData.bind(this));
+        this._settings.connect(`changed::${ADRESS}`, this.loadData.bind(this));
+        this._settings.connect(`changed::${UPDTEDLY}`, this.loadData.bind(this));
 
        // Label  voir les style at https://docs.gtk.org/Pango/pango_markup.html
         this.label = new St.Label({style_class: 'pingindic-label',y_align: Clutter.ActorAlign.CENTER,text: _("HOLA!!!")});
@@ -107,7 +109,8 @@ class Extension extends PanelMenu.Button{
                         this.label.set_text("timeout");
                         this.label.set_style_class_name('pingindic-label-bad');
                     } else {
-                        this.label.set_text(result[2]);
+                        let latency = Number.parseFloat(result[2]);
+                        this.label.set_text(String(latency.toFixed(this._settings.get_int(DIGITS))) + " ms");
                         this.label.set_style_class_name(this.getlabelstyle(result[2]));
                     }
                     break;

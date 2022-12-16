@@ -6,6 +6,10 @@
             <summary>Delay(sec)</summary>
             <description>Delay between ping .</description>
         </key>
+        <key type="i" name="digits">
+            <default>2</default>
+            <summary>Digits to display</summary>
+        </key>
         <key type="s" name="adress">
             <default>'8.8.8.8'</default>
             <summary>Adress to Ping</summary>
