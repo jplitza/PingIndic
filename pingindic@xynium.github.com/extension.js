@@ -4,17 +4,13 @@
 
 'use strict';
 
+const { Atk, Gio, GObject, Clutter, GLib, St } = imports.gi;
 const Main = imports.ui.main;
 //const Mainloop = imports.mainloop;
-const Me = imports.misc.extensionUtils.getCurrentExtension();
 const PanelMenu = imports.ui.panelMenu;
 const PopupMenu = imports.ui.popupMenu;
-const St = imports.gi.St;
-const GObject = imports.gi.GObject;
-const Gio = imports.gi.Gio;
-const Clutter = imports.gi.Clutter;
-const GLib = imports.gi.GLib;
 const ExtensionUtils = imports.misc.extensionUtils;
+const Me = ExtensionUtils.getCurrentExtension();
 const Gettext = imports.gettext.domain('PingIndic');
 const _ = Gettext.gettext;
 
@@ -24,162 +20,143 @@ const LIMITFORGOOD = "limitforgood";
 const LIMITFORBAD="limitforbad";
 
 let mpingindic;
-let settings;
-let feedsArray;
-let label; 
-let tagWatchOUT ;
-let tagWatchERR;
-let timeout;
 
 const Extension = GObject.registerClass(
 class Extension extends PanelMenu.Button{
      _init () {
         super._init(0);
 
+        this.accessible_role = Atk.Role.TOGGLE_BUTTON;
+
+        this._settings = ExtensionUtils.getSettings('org.gnome.shell.extensions.pingindic');
+        this._settings.connect(`changed`, this.loadData.bind(this));
+
        // Label  voir les style at https://docs.gtk.org/Pango/pango_markup.html
-        label = new St.Label({style_class: 'pingindic-label',y_align: Clutter.ActorAlign.CENTER,text: _("HOLA!!!")});
-        let topBox = new St.BoxLayout();
-        topBox.add_actor(label);
+        this.label = new St.Label({style_class: 'pingindic-label',y_align: Clutter.ActorAlign.CENTER,text: _("HOLA!!!")});
+        //let topBox = new St.BoxLayout();
+        //topBox.add_actor(label);
+        //this.add_actor(topBox);
+        this.add_actor(this.label);
 
-        this.add_actor(topBox);
-        this.buildmenu();
+        this.connect('button-press-event', () => { ExtensionUtils.openPrefs(); });
+        this.connect('touch-event', () => { ExtensionUtils.openPrefs(); });
+
+        this.loadData();
     }
 
-    buildmenu(){
-        if (this.mainBox != null)
-            this.mainBox.destroy();
-
-        // Create main box
-        this.mainBox = new St.BoxLayout();
-        //this.mainBox.set_vertical(true);
-
-        let customButtonBox = new St.BoxLayout({
-            style_class: 'pingindic-button-box ',
-            vertical: false,
-            clip_to_allocation: true,
-            x_align: Clutter.ActorAlign.CENTER,
-            y_align: Clutter.ActorAlign.CENTER,
-            reactive: true,
-            x_expand: true,
-            pack_start: false
-        });
-
-        // custom round preferences button
-        let prefsButton = new St.Button();
-        prefsButton.child = new St.Icon({
-            icon_name: 'emblem-system' ,
-            style_class: 'pingindic-button-action' 
-        });
-        let preflabBtn = new St.Button({style_class: 'pingindic-Btn-label',y_align: Clutter.ActorAlign.CENTER,label: _('Settings')});
-        prefsButton.connect('clicked', () => {
-            this.menu.actor.hide();
-            ExtensionUtils.openPrefs(); 
-        });
-        preflabBtn.connect('clicked', () => {
-            this.menu.actor.hide();
-            ExtensionUtils.openPrefs(); 
-        });
-        customButtonBox.add_actor(prefsButton);
-        customButtonBox.add_actor(preflabBtn);
-
-        this.mainBox.add_actor(customButtonBox);
-        this.menu.box.add(this.mainBox);
+    killChild() {
+        if (this.IOchannelOUT) {
+            this.IOchannelOUT.shutdown(false);
+            this.IOchannelOUT = null;
+        }
+        if (this.IOchannelERR) {
+            this.IOchannelERR.shutdown(false);
+            this.IOchannelERR = null;
+        }
+        if (this.child_pid != null) {
+            console.log("Killing ping PID " + this.child_pid);
+            GLib.spawn_close_pid(this.child_pid);
+            this.child_pid = null;
+        }
     }
-    
+
     loadData() {
         let success;
-        this.command = ["ping","-c 1",settings.get_string(ADRESS)];
+        this.killChild();
+        this.command = [
+            "ping",
+            "-n",
+            "-i", String(this._settings.get_int(UPDTEDLY)),
+            this._settings.get_string(ADRESS),
+        ];
         [success, this.child_pid, this.std_in, this.std_out, this.std_err] = GLib.spawn_async_with_pipes(
-            null, 
-            this.command, 
             null,
-            GLib.SpawnFlags.SEARCH_PATH, 
+            this.command,
+            null,
+            GLib.SpawnFlags.SEARCH_PATH,
             null);
 
-        GLib.close(this.std_in);
-        
         if (!success) {
-            label.set_text(_("Ping Fail"));  //xxx for debug
+            log('launching ping fail');
             return;
         }
 
         this.IOchannelOUT = GLib.IOChannel.unix_new(this.std_out);
         this.IOchannelERR = GLib.IOChannel.unix_new(this.std_err);
 
-        tagWatchOUT = GLib.io_add_watch(this.IOchannelOUT, GLib.PRIORITY_DEFAULT,
-            GLib.IOCondition.IN | GLib.IOCondition.HUP, this.loadPipeOUT );
-       
-        tagWatchERR = GLib.io_add_watch(this.IOchannelERR, GLib.PRIORITY_DEFAULT,
-            GLib.IOCondition.IN | GLib.IOCondition.HUP,this.loadPipeERR );
+        GLib.io_add_watch(this.IOchannelOUT, GLib.PRIORITY_DEFAULT,
+            GLib.IOCondition.IN | GLib.IOCondition.HUP, this.loadPipeOUT.bind(this) );
+
+        GLib.io_add_watch(this.IOchannelERR, GLib.PRIORITY_DEFAULT,
+            GLib.IOCondition.IN | GLib.IOCondition.HUP, this.loadPipeERR.bind(this) );
     }
-    
+
      loadPipeOUT(channel, condition, data) {
-        if (condition != GLib.IOCondition.HUP) {
-            let out = channel.read_line(); //dummy
-             out = channel.read_line();
-            const result =  out[1].split('=');
-            if(result[3] != null) {
-                const val=result[3].split('\n');
-                label.set_text(val[0]);
-                setlabelstyle(val[0]); 
+        if (condition == GLib.IOCondition.HUP) {
+            console.log("ping command exited, restarting");
+            this.loadData();
+        } else {
+            let out = channel.read_line();
+            switch (out[0]) {
+                case GLib.IOStatus.EOF:
+                    this.loadData();
+                    break;
+                case GLib.IOStatus.NORMAL:
+                    const result =  out[1].split('=');
+                    if(result[3] == null) {
+                        console.log("Did not find latency in ping output: " + out[1]);
+                        this.label.set_text(out[1].replace(/icmp_seq=\d+ /, ''));
+                        this.label.set_style_class_name('pingindic-label-bad' );
+                    } else {
+                        this.label.set_text(result[3]);
+                        this.label.set_style_class_name(this.getlabelstyle(result[3]));
+                    }
+                    break;
             }
         }
-        else {
-           label.set_text(_("Error time"));
-           label.set_style_class_name('pingindic-label-bad' );
-        }
-        GLib.source_remove(tagWatchOUT);
-        channel.shutdown(true);
-        //GLib.spawn_close_pid(pid);
+        return GLib.SOURCE_CONTINUE;
     }
 
     loadPipeERR(channel, condition, data) {
-        if (condition != GLib.IOCondition.HUP) {
-            label.set_text(_("Error acces"));
-            label.set_style_class_name('pingindic-label-bad' );
+        if (condition == GLib.IOCondition.HUP) {
+            console.log("ping command exited, restarting");
+            this.loadData();
+        } else {
+            let out = channel.read_line();
+            switch (out[0]) {
+                case GLib.IOStatus.EOF:
+                    this.loadData();
+                    break;
+                case GLib.IOStatus.NORMAL:
+                    console.log(out[1]);
+                    this.label.set_text(_("err"));
+                    this.label.set_style_class_name('pingindic-label-bad' );
+                    break;
+            }
         }
-        GLib.source_remove(tagWatchERR);
-        channel.shutdown(false);
-        //GLib.spawn_close_pid(pid);
+    }
+
+    getlabelstyle(str) {
+        let time = parseFloat(str);
+        if (time<this._settings.get_int(LIMITFORGOOD))
+            return 'pingindic-label-good';
+        else {
+            if (time<this._settings.get_int(LIMITFORBAD))
+                return 'pingindic-label-nogood';
+            else
+                return 'pingindic-label-bad';
+        }
     }
 });
 
-function setlabelstyle(str){
-    let time = parseFloat(str);
-    if (time<settings.get_int(LIMITFORGOOD))
-        label.set_style_class_name('pingindic-label-good' );
-    else {
-        if (time<settings.get_int(LIMITFORBAD))
-            label.set_style_class_name('pingindic-label-nogood' );
-        else
-            label.set_style_class_name('pingindic-label-bad' );
-            // label.set_style('color : #00FF00' );
-    }
-}
-
-function update() {
-    mpingindic.loadData();
-    return GLib.SOURCE_CONTINUE;;
-}
-
-function init() {
-}
-
 function enable() {
-    settings = ExtensionUtils.getSettings('org.gnome.shell.extensions.pingindic');  
     mpingindic = new Extension();
     Main.panel.addToStatusArea('mpingindic', mpingindic, 0, 'right');
-    timeout=GLib.timeout_add(GLib.PRIORITY_DEFAULT_IDLE,settings.get_int(UPDTEDLY)*1000, update );
 }
 
 function disable() {
-    GLib.source_remove(timeout);
+    mpingindic.killChild();
     mpingindic.destroy();
     mpingindic=null;
-    settings=null;
-    timeout=null;
-    label=null;
-    tagWatchOUT =null;
-    tagWatchERR=null;
 }
 
