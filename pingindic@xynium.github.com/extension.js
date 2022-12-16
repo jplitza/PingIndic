@@ -64,9 +64,9 @@ class Extension extends PanelMenu.Button{
         let success;
         this.killChild();
         this.command = [
-            "ping",
-            "-n",
-            "-i", String(this._settings.get_int(UPDTEDLY)),
+            "fping",
+            "-l", "-q",
+            "-i", String(this._settings.get_int(UPDTEDLY)*1000),
             this._settings.get_string(ADRESS),
         ];
         [success, this.child_pid, this.std_in, this.std_out, this.std_err] = GLib.spawn_async_with_pipes(
@@ -77,7 +77,7 @@ class Extension extends PanelMenu.Button{
             null);
 
         if (!success) {
-            log('launching ping fail');
+            log('launching fping fail');
             return;
         }
 
@@ -93,7 +93,7 @@ class Extension extends PanelMenu.Button{
 
      loadPipeOUT(channel, condition, data) {
         if (condition == GLib.IOCondition.HUP) {
-            console.log("ping command exited, restarting");
+            console.log("fping command exited, restarting");
             this.loadData();
         } else {
             let out = channel.read_line();
@@ -102,14 +102,13 @@ class Extension extends PanelMenu.Button{
                     this.loadData();
                     break;
                 case GLib.IOStatus.NORMAL:
-                    const result =  out[1].split('=');
-                    if(result[3] == null) {
-                        console.log("Did not find latency in ping output: " + out[1]);
-                        this.label.set_text(out[1].replace(/icmp_seq=\d+ /, ''));
-                        this.label.set_style_class_name('pingindic-label-bad' );
+                    const result =  out[1].split(/[,(]/);
+                    if(result[1].trim() == "timed out") {
+                        this.label.set_text("timeout");
+                        this.label.set_style_class_name('pingindic-label-bad');
                     } else {
-                        this.label.set_text(result[3]);
-                        this.label.set_style_class_name(this.getlabelstyle(result[3]));
+                        this.label.set_text(result[2]);
+                        this.label.set_style_class_name(this.getlabelstyle(result[2]));
                     }
                     break;
             }
