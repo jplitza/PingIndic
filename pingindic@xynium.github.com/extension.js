@@ -47,6 +47,14 @@ class Extension extends PanelMenu.Button{
     }
 
     killChild() {
+        if (this.IOwatchOUT) {
+            GLib.Source.remove(this.IOwatchOUT);
+            this.IOwatchOUT = null;
+        }
+        if (this.IOwatchERR) {
+            GLib.Source.remove(this.IOwatchERR);
+            this.IOwatchERR = null;
+        }
         if (this.IOchannelOUT) {
             this.IOchannelOUT.shutdown(false);
             this.IOchannelOUT = null;
@@ -86,10 +94,10 @@ class Extension extends PanelMenu.Button{
         this.IOchannelOUT = GLib.IOChannel.unix_new(this.std_out);
         this.IOchannelERR = GLib.IOChannel.unix_new(this.std_err);
 
-        GLib.io_add_watch(this.IOchannelOUT, GLib.PRIORITY_DEFAULT,
+        this.IOwatchOUT = GLib.io_add_watch(this.IOchannelOUT, GLib.PRIORITY_DEFAULT,
             GLib.IOCondition.IN | GLib.IOCondition.HUP, this.loadPipeOUT.bind(this) );
 
-        GLib.io_add_watch(this.IOchannelERR, GLib.PRIORITY_DEFAULT,
+        this.IOwatchERR = GLib.io_add_watch(this.IOchannelERR, GLib.PRIORITY_DEFAULT,
             GLib.IOCondition.IN | GLib.IOCondition.HUP, this.loadPipeERR.bind(this) );
     }
 
